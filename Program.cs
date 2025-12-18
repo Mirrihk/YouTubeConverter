@@ -1,47 +1,66 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
 using YoutubeExplode;
 using YoutubeExplode.Videos.Streams;
 
 class Program
 {
-    static async Task Main(string[] args)
+    static async Task Main()
     {
-        string url = "https://www.youtube.com/watch?v=XUvhjjR-dVI&list=RDXUvhjjR-dVI&start_radio=1"; // use only allowed content
-        string outputMp3 = "For Tracy Hyde - Underwater Girl";
+        Console.WriteLine("Enter a YouTube video URL:");
+        string? url = Console.ReadLine();
 
-        var youtube = new YoutubeClient();
-
-        var video = await youtube.Videos.GetAsync(url);
-        Console.WriteLine($"Downloading: {video.Title}");
-
-        var manifest = await youtube.Videos.Streams.GetManifestAsync(video.Id);
-        var audioStream = manifest.GetAudioOnlyStreams().GetWithHighestBitrate();
-
-        string tempFile = "audio_temp.m4a";
-
-        await youtube.Videos.Streams.DownloadAsync(audioStream, tempFile);
-        Console.WriteLine("Download complete.");
-
-        var ffmpeg = new ProcessStartInfo
+        if (string.IsNullOrWhiteSpace(url))
         {
-            FileName = @"C:\ProgramData\chocolatey\bin\ffmpeg.exe", // choco path
-            Arguments = $"-i \"{tempFile}\" -vn -b:a 320k \"{outputMp3}\" -y",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+            Console.WriteLine("No URL provided. Exiting.");
+            return;
+        }
 
-        using var process = Process.Start(ffmpeg);
-        string stdout = process.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        try
+        {
+            var youtube = new YoutubeClient();
 
-        Console.WriteLine(stdout);
-        Console.WriteLine(stderr);
+            var video = await youtube.Videos.GetAsync(url);
+            string safeTitle = string.Join("_", video.Title.Split(Path.GetInvalidFileNameChars()));
+            string outputMp3 = $"{safeTitle}.mp3";
 
-        File.Delete(tempFile);
+            Console.WriteLine($"Downloading: {video.Title}");
 
-        Console.WriteLine("MP3 created!");
+            var manifest = await youtube.Videos.Streams.GetManifestAsync(video.Id);
+            var audioStream = manifest.GetAudioOnlyStreams().GetWithHighestBitrate();
+
+            string tempFile = "audio_temp.m4a";
+
+            await youtube.Videos.Streams.DownloadAsync(audioStream, tempFile);
+            Console.WriteLine("Download complete. Converting to MP3...");
+
+            var ffmpeg = new ProcessStartInfo
+            {
+                FileName = @"C:\ProgramData\chocolatey\bin\ffmpeg.exe", // Update if ffmpeg is elsewhere
+                Arguments = $"-i \"{tempFile}\" -vn -b:a 320k \"{outputMp3}\" -y",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(ffmpeg);
+            string stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode == 0)
+                Console.WriteLine($"MP3 saved as: {outputMp3}");
+            else
+                Console.WriteLine($"Conversion error:\n{stderr}");
+
+            File.Delete(tempFile);
+            Console.WriteLine("Temporary file removed.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
     }
 }
